@@ -5,8 +5,20 @@ from django.conf import settings
 
 from debian import deb822, debfile
 
-from rest_framework.serializers import CharField, DictField, Field, ValidationError, Serializer
-from pulpcore.plugin.models import Artifact, CreatedResource, RemoteArtifact
+from rest_framework.serializers import (
+    CharField,
+    DictField,
+    Field,
+    ValidationError,
+    Serializer,
+    ListField,
+)
+from pulpcore.plugin.models import (
+    Artifact,
+    CreatedResource,
+    RemoteArtifact,
+    Content,
+)
 from pulpcore.plugin.serializers import (
     ContentChecksumSerializer,
     MultipleArtifactContentSerializer,
@@ -729,6 +741,40 @@ class ReleaseSerializer(NoArtifactContentSerializer):
     label = NullableCharField(required=False, allow_null=True, default=None)
     description = NullableCharField(required=False, allow_null=True, default=None)
 
+    architectures = ListField(child=CharField(), required=False)
+    components = ListField(child=CharField(), required=False)
+
+    def create(self, validated_data):
+        repository = validated_data.pop("repository", None)
+        content_to_add = []
+
+        data = validated_data.copy()
+        architectures = data.pop("architectures", [])
+        components = data.pop("components", [])
+        content, created = Release.objects.get_or_create(**data)
+        if not created:
+            content.touch()
+        content_to_add.append(content.pk)
+
+        for arch in architectures:
+            architecture, _ = ReleaseArchitecture.objects.get_or_create(
+                distribution=content.distribution, architecture=arch
+            )
+            content_to_add.append(architecture.pk)
+
+        for comp in components:
+            component, _ = ReleaseComponent.objects.get_or_create(
+                distribution=content.distribution, component=arch
+            )
+            content_to_add.append(component.pk)
+
+        if repository:
+            # create new repo version with uploaded package
+            with repository.new_version() as new_version:
+                new_version.add_content(Content.objects.filter(pk__in=content_to_add))
+
+        return content
+
     class Meta(NoArtifactContentSerializer.Meta):
         model = Release
         fields = NoArtifactContentSerializer.Meta.fields + (
@@ -739,6 +785,8 @@ class ReleaseSerializer(NoArtifactContentSerializer):
             "origin",
             "label",
             "description",
+            "architectures",
+            "components",
         )
 
 
