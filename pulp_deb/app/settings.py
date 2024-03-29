@@ -5,6 +5,6 @@ Check `Plugin Writer's Guide`_ for more details.
     http://docs.pulpproject.org/en/3.0/nightly/plugins/plugin-writer/index.html
 """
 
-APT_BY_HASH = False
+APT_BY_HASH = True
 FORBIDDEN_CHECKSUM_WARNINGS = True
 FORCE_IGNORE_MISSING_PACKAGE_INDICES = False
