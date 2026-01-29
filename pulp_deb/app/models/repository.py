@@ -2,6 +2,7 @@ import logging
 from gettext import gettext as _
 
 from django.db import models
+from django.utils.functional import cached_property
 
 from pulpcore.plugin.models import (
     AutoAddObjPermsMixin,
@@ -16,6 +17,7 @@ from pulpcore.plugin.repo_version_utils import (
 from pulpcore.plugin.util import batch_qs, get_domain_pk
 
 from pulp_deb.app.models import (
+    AptPackageSigningService,
     AptReleaseSigningService,
     AptRemote,
     GenericContent,
@@ -31,7 +33,6 @@ from pulp_deb.app.models import (
     SourceIndex,
     SourcePackage,
     SourcePackageReleaseComponent,
-    AptPackageSigningService,
 )
 
 log = logging.getLogger(__name__)
@@ -131,13 +132,21 @@ class AptRepository(Repository, AutoAddObjPermsMixin):
         """
         if isinstance(release, Release):
             release = release.distribution
-        try:
-            override = self.package_signing_fingerprint_release_overrides.get(
-                release_distribution=release
-            )
-            return override.package_signing_fingerprint
-        except AptRepositoryReleasePackageSigningFingerprintOverride.DoesNotExist:
+        if not release:
             return self.package_signing_fingerprint
+        return self.package_signing_fingerprint_release_overrides_map.get(
+            release, self.package_signing_fingerprint
+        )
+
+    @cached_property
+    def package_signing_fingerprint_release_overrides_map(self):
+        """
+        Cached mapping of release distributions to package signing fingerprints.
+        """
+        return {
+            override.release_distribution: override.package_signing_fingerprint
+            for override in self.package_signing_fingerprint_release_overrides.all()
+        }
 
     def initialize_new_version(self, new_version):
         """
