@@ -46,6 +46,7 @@ from pulpcore.plugin.util import get_domain
 from pulp_deb.app.constants import (
     CHECKSUM_TYPE_MAP,
     NO_MD5_WARNING_MESSAGE,
+    VARIANT_TO_BASE_ARCHITECTURE_MAP,
 )
 from pulp_deb.app.models import (
     AptRemote,
@@ -312,6 +313,41 @@ def _filter_split_architectures(release_file_string, remote_string, distribution
         remaining_values &= remote_architectures
 
     return sorted(remaining_values)
+
+
+def filter_arch_tokens(release_arch_string, remote_arch_string, distribution):
+    upstream = set(release_arch_string.split())
+
+    if not remote_arch_string:
+        return [parse_arch_token(architecture) for architecture in sorted(upstream)]
+
+    out = []
+    seen_published = set()
+
+    for architecture in remote_arch_string.split():
+        base_architecture, index_architecture, variant_architecture = parse_arch_token(architecture)
+
+        if index_architecture in seen_published:
+            continue
+        seen_published.add(index_architecture)
+
+        if index_architecture in upstream:
+            out.append((base_architecture, index_architecture, variant_architecture))
+        else:
+            message = (
+                "Architecture '{0}' is not amongst the release file architectures '{1}' for "
+                "distribution '{2}'. This could be valid, but more often indicates an error in "
+                "the architectures field of the remote being used."
+            )
+            log.warning(_(message).format(index_architecture, release_arch_string, distribution))
+
+    if "all" in upstream and not any(
+        index_architecture == "all"
+        for _base_architecture, index_architecture, _variant_architecture in out
+    ):
+        out.append(("all", "all", None))
+
+    return out
 
 
 def _filter_split_components(release_file_string, remote_string, distribution):
@@ -726,13 +762,18 @@ class DebFirstStage(Stage):
             log.warning(_(message).format(distribution))
             architectures = []
         elif release_file.architectures:
-            architectures = _filter_split_architectures(
+            architectures = filter_arch_tokens(
                 release_file.architectures, self.remote.architectures, distribution
             )
 
-        for architecture in architectures:
+        for base_arch, published_arch, variant in architectures:
             release_architecture_dc = DeclarativeContent(
-                content=ReleaseArchitecture(architecture=architecture, distribution=distribution)
+                content=ReleaseArchitecture(
+                    architecture=published_arch,
+                    base_architecture=base_arch,
+                    variant_architecture=variant,
+                    distribution=distribution,
+                )
             )
             await self.put(release_architecture_dc)
 
@@ -799,15 +840,17 @@ class DebFirstStage(Stage):
         )
         release_component = await self._create_unit(release_component_dc)
 
+        has_all_arch = any(base_arch == "all" for base_arch, _pub_arch, _variant in architectures)
         # If we are dealing with a "hybrid format", try handling any architecture='all' indices
         # first. That way, we can recover the special case, where a partial mirror does not mirror
         # this index inspite of indicating "hybrid format" in the mirrored metadata.
-        if hybrid_format and "all" in architectures:
+        if hybrid_format and has_all_arch:
             try:
                 await self._handle_package_index(
                     release_file=release_file,
                     release_component=release_component,
-                    architecture="all",
+                    base_architecture="all",
+                    index_architecture="all",
                     file_references=file_references,
                     hybrid_format=hybrid_format,
                 )
@@ -830,37 +873,43 @@ class DebFirstStage(Stage):
         # needs investigation once there are tests for this issue. Best guess it hasis something do
         # with the asynchronous handling of the tasks and removing something from a dict without
         # a copy.
-        if hybrid_format and "all" in architectures:
-            architectures.remove("all")
+        if hybrid_format:
+            architectures = [
+                (base_arch, pub_arch, variant)
+                for (base_arch, pub_arch, variant) in architectures
+                if base_arch != "all"
+            ]
 
         pending_tasks = []
         # Handle package indices
-        pending_tasks.extend(
-            [
-                self._handle_package_index(
-                    release_file=release_file,
-                    release_component=release_component,
-                    architecture=architecture,
-                    file_references=file_references,
-                    hybrid_format=hybrid_format,
-                )
-                for architecture in architectures
-            ]
-        )
-        # Handle installer package indices
-        if self.remote.sync_udebs:
+        for base_arch, index_arch, variant in architectures:
             pending_tasks.extend(
                 [
                     self._handle_package_index(
                         release_file=release_file,
                         release_component=release_component,
-                        architecture=architecture,
+                        base_architecture=base_arch,
+                        index_architecture=index_arch,
                         file_references=file_references,
-                        infix="debian-installer",
+                        hybrid_format=hybrid_format,
                     )
-                    for architecture in architectures
                 ]
             )
+        # Handle installer package indices
+        if self.remote.sync_udebs:
+            for base_arch, index_arch, variant in architectures:
+                pending_tasks.extend(
+                    [
+                        self._handle_package_index(
+                            release_file=release_file,
+                            release_component=release_component,
+                            base_architecture=base_arch,
+                            index_architecture=index_arch,
+                            file_references=file_references,
+                            infix="debian-installer",
+                        )
+                    ]
+                )
         # Handle installer file indices
         if self.remote.sync_installer:
             pending_tasks.extend(
@@ -893,7 +942,8 @@ class DebFirstStage(Stage):
             self._handle_package_index(
                 release_file=release_file,
                 release_component=release_component,
-                architecture="",
+                base_architecture="",
+                index_architecture="",
                 file_references=file_references,
                 distribution=distribution,
                 is_flat=True,
@@ -911,7 +961,8 @@ class DebFirstStage(Stage):
         self,
         release_file,
         release_component,
-        architecture,
+        base_architecture,
+        index_architecture,
         file_references,
         infix="",
         distribution=None,
@@ -924,7 +975,7 @@ class DebFirstStage(Stage):
             release_file_package_index_dir = os.path.join(
                 release_component.plain_component,
                 infix,
-                f"binary-{architecture}",
+                f"binary-{index_architecture}",
             )
         # Create package_index
         release_base_path = os.path.dirname(release_file.relative_path)
@@ -960,7 +1011,7 @@ class DebFirstStage(Stage):
         log.info(_('Creating PackageIndex unit with relative_path="{}".').format(relative_path))
         content_unit = PackageIndex(
             component=release_component.component,
-            architecture=architecture,
+            architecture=index_architecture,
             sha256=d_artifacts[0].artifact.sha256,
             relative_path=relative_path,
         )
@@ -971,7 +1022,7 @@ class DebFirstStage(Stage):
             if (
                 settings.FORCE_IGNORE_MISSING_PACKAGE_INDICES
                 or self.remote.ignore_missing_package_indices
-            ) and architecture != "all":
+            ) and index_architecture != "all":
                 message = "No suitable package index files found in '{}'. Skipping."
                 log.info(_(message).format(package_index_dir))
                 return
@@ -1002,32 +1053,35 @@ class DebFirstStage(Stage):
         ):
             # Sanity check the architecture from the package paragraph:
             package_paragraph_architecture = package_paragraph["Architecture"]
+            allowed_arches = {base_architecture, index_architecture}
             if is_flat:
-                if (
-                    self.remote.architectures
-                    and package_paragraph_architecture != "all"
-                    and package_paragraph_architecture not in self.remote.architectures.split()
-                ):
-                    message = (
-                        "Omitting package '{}' with architecture '{}' from flat repo distribution "
-                        "'{}', since we are filtering for architectures '{}'!"
-                    )
-                    log.debug(
-                        _(message).format(
-                            package_paragraph["Filename"],
-                            package_paragraph_architecture,
-                            release_file.distribution,
-                            self.remote.architectures,
+                if self.remote.architectures and package_paragraph_architecture != "all":
+                    allowed_bases = set()
+                    for token in self.remote.architectures.split():
+                        base, published, variant = parse_arch_token(token)
+                        allowed_bases.add(base)
+
+                    if package_paragraph_architecture not in allowed_bases:
+                        message = (
+                            "Omitting package '{}' with architecture '{}' from flat repo "
+                            "distribution '{}', since we are filtering for architectures '{}'!"
                         )
-                    )
-                    continue
+                        log.debug(
+                            _(message).format(
+                                package_paragraph["Filename"],
+                                package_paragraph_architecture,
+                                release_file.distribution,
+                                self.remote.architectures,
+                            )
+                        )
+                        continue
             # We drop packages if the package_paragraph_architecture != architecture unless that
             # architecture is "all" in a "mixed" (containing all as well as architecture specific
             # packages) package index:
             elif (
                 package_paragraph_architecture != "all"
                 or "all" in release_file.architectures.split()
-            ) and package_paragraph_architecture != architecture:
+            ) and package_paragraph_architecture not in allowed_arches:
                 if not hybrid_format:
                     message = (
                         "The upstream package index in '{}' contains package '{}' with wrong "
@@ -1083,9 +1137,14 @@ class DebFirstStage(Stage):
             if not isinstance(package, Package):
                 # TODO repeat this for installer packages
                 continue
+
+            prc_index_architecture = "all" if package.architecture == "all" else index_architecture
+
             package_release_component_dc = DeclarativeContent(
                 content=PackageReleaseComponent(
-                    package=package, release_component=release_component
+                    package=package,
+                    release_component=release_component,
+                    index_architecture=prc_index_architecture,
                 )
             )
             await self.put(package_release_component_dc)
@@ -1532,3 +1591,13 @@ def get_distribution_release_file_artifact_set_sha256(distribution, remote):
         hash_string = hash_string + filename + "," + sha256 + "\n"
 
     return hashlib.sha256(hash_string.encode("utf-8")).hexdigest()
+
+
+def parse_arch_token(architecture):
+    """Return base architecture, index architecture, and variant architecture."""
+    base_architecture = VARIANT_TO_BASE_ARCHITECTURE_MAP.get(architecture)
+
+    if base_architecture:
+        return base_architecture, architecture, architecture
+
+    return architecture, architecture, None

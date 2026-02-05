@@ -1,9 +1,13 @@
-from rest_framework.serializers import BooleanField, CharField, ChoiceField
+import re
+
+from rest_framework.serializers import BooleanField, CharField, ChoiceField, ValidationError
 
 from pulpcore.plugin.models import Remote
 from pulpcore.plugin.serializers import RemoteSerializer
 
 from pulp_deb.app.models import AptRemote
+
+ARCH_RE = re.compile(r"^[A-Za-z0-9_+-]+$")
 
 
 class AptRemoteSerializer(RemoteSerializer):
@@ -30,12 +34,12 @@ class AptRemoteSerializer(RemoteSerializer):
     )
 
     architectures = CharField(
-        help_text="Whitespace separated list of architectures to sync\n"
+        help_text="Whitespace separated list of architectures to sync.\n"
         "If none are supplied, all that are available will be synchronized. "
-        "A list of valid architecture specification strings can be found by running "
-        '"dpkg-architecture -L". A sync will download the intersection of the list '
-        "of architectures provided via this field and those provided by the relevant "
-        '"Release" file. Architecture="all" is always synchronized and does not need '
+        "A sync will download the intersection of the architectures provided via "
+        "this field and those provided by the relevant Release file. Architecture "
+        "variants should be specified as they appear in the Release file, for example "
+        '"amd64v3". Architecture="all" is always synchronized and does not need '
         "to be provided here.",
         required=False,
         allow_null=True,
@@ -83,3 +87,21 @@ class AptRemoteSerializer(RemoteSerializer):
             "ignore_missing_package_indices",
         )
         model = AptRemote
+
+    def validate_architectures(self, value):
+        if value in (None, ""):
+            return value
+
+        tokens = value.split()
+        seen_tokens = set()
+        for token in tokens:
+            if token in seen_tokens:
+                raise ValidationError(f"Duplicate architecture token '{token}'.")
+            seen_tokens.add(token)
+
+            if not ARCH_RE.match(token):
+                raise ValidationError(
+                    f"Invalid architecture token '{token}'. Use architecture names such as "
+                    "'amd64', 'amd64v3', 'arm64', or 'all'."
+                )
+        return value

@@ -663,7 +663,7 @@ class ReleaseArchitectureFilter(ContentFilter):
 
     class Meta:
         model = models.ReleaseArchitecture
-        fields = ["architecture", "distribution"]
+        fields = ["architecture", "distribution", "base_architecture", "variant_architecture"]
 
 
 class ReleaseArchitectureViewSet(NoArtifactContentViewSet):
