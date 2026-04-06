@@ -100,25 +100,28 @@ signing, package signing modifies the `.deb` file directly, so it uses the
 
 - Install `debsigs` and ensure it can access the private key you want to use.
 - Familiarize yourself with the general signing instructions in
-	[pulpcore](site:pulpcore/docs/admin/guides/sign-metadata/).
+  [pulpcore](site:pulpcore/docs/admin/guides/sign-metadata/).
 - Make sure the public key fingerprint you provide matches the key available to `debsigs`. During
-	package uploads the fingerprint is passed to the script via the
-	`PULP_SIGNING_KEY_FINGERPRINT` environment variable.
+  package uploads the raw fingerprint (without prefix) is passed to the script via the
+  `PULP_SIGNING_KEY_FINGERPRINT` environment variable, and the fingerprint type prefix (e.g.
+  `v4`, `keyid`) is passed via `PULP_SIGNING_FINGERPRINT_TYPE`.
 
 ### Instructions
 
 1. Create a signing script capable of signing a Debian package with `debsigs`.
-		- The script receives the package path as its first argument.
-		- The script must use `PULP_SIGNING_KEY_FINGERPRINT` to select the signing key.
-		- The script should return JSON describing the signed file:
-			```json
-			{"deb_package": "/absolute/path/to/signed.deb"}
-			```
+    - The script receives the package path as its first argument.
+    - The script must use `PULP_SIGNING_KEY_FINGERPRINT` to select the signing key. The
+      `PULP_SIGNING_FINGERPRINT_TYPE` environment variable indicates the fingerprint type
+      (e.g. `v4`, `keyid`).
+    - The script should return JSON describing the signed file:
+      ```json
+      {"deb_package": "/absolute/path/to/signed.deb"}
+      ```
 2. Register the script with `pulpcore-manager add-signing-service`.
-		- Use `--class "deb:AptPackageSigningService"`.
-		- The public key fingerprint passed here is only used to validate the script registration.
+    - Use `--class "deb:AptPackageSigningService"`.
+    - The public key fingerprint passed here is only used to validate the script registration.
 3. Retrieve the signing service `pulp_href` for later use (for example via
-	 `pulp signing-service show --name <NAME>`).
+   `pulp signing-service show --name <NAME>`).
 
 ### Example
 
@@ -132,6 +135,8 @@ set -euo pipefail
 
 PACKAGE_PATH=$1
 FINGERPRINT="${PULP_SIGNING_KEY_FINGERPRINT:?PULP_SIGNING_KEY_FINGERPRINT is required}"
+# PULP_SIGNING_FINGERPRINT_TYPE contains the fingerprint type prefix (e.g. "v4", "keyid")
+FINGERPRINT_TYPE="${PULP_SIGNING_FINGERPRINT_TYPE:-v4}"
 WORKDIR="${PULP_TEMP_WORKING_DIR:-$(mktemp -d)}"
 SIGNED_PATH="${WORKDIR}/$(basename "${PACKAGE_PATH}")"
 
