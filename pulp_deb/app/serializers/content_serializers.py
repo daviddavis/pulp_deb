@@ -19,6 +19,7 @@ from pulpcore.plugin.serializers import (
     DetailRelatedField,
     MultipleArtifactContentSerializer,
     NoArtifactContentSerializer,
+    PgpKeyFingerprintField,
     SingleArtifactContentSerializer,
     SingleArtifactContentUploadSerializer,
     SingleContentArtifactField,
@@ -599,6 +600,13 @@ class BasePackageMixin(Serializer):
     provides = CharField(read_only=True)
     replaces = CharField(read_only=True)
     custom_fields = DictField(child=CharField(), allow_empty=True, required=False)
+    signing_keys = ListField(
+        child=PgpKeyFingerprintField(),
+        help_text=_("List of signing key fingerprints used to sign this package."),
+        allow_null=True,
+        required=False,
+        read_only=True,
+    )
 
     def __init__(self, *args, **kwargs):
         """Initializer for BasePackageSerializer."""
@@ -681,6 +689,7 @@ class BasePackageMixin(Serializer):
             "pre_depends",
             "provides",
             "replaces",
+            "signing_keys",
         )
 
 
@@ -695,6 +704,10 @@ class PackageSerializer(BasePackageMixin, SinglePackageUploadSerializer, Content
 
         if data.get("section") == "debian-installer":
             raise ValidationError(_("Not a valid Deb Package"))
+
+        if signing_key := self.context.get("signing_key"):
+            # Only _gpgorigin signatures are supported currently, so packages have one signing key.
+            data["signing_keys"] = [signing_key]
 
         return data
 
