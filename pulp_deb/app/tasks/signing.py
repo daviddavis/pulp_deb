@@ -1,6 +1,8 @@
 import asyncio
+import logging
 import re
 import subprocess
+from gettext import gettext as _
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -8,24 +10,21 @@ from django.conf import settings
 from django.db.models import Q
 
 from pulpcore.plugin.models import (
-    Upload,
-    UploadChunk,
     Artifact,
     ContentArtifact,
     CreatedResource,
     PulpTemporaryFile,
+    Upload,
+    UploadChunk,
 )
 from pulpcore.plugin.tasking import add_and_remove, general_create
 from pulpcore.plugin.util import get_url
 
+from pulp_deb.app.models import AptRepository, Package, PackageReleaseComponent
 from pulp_deb.app.models.signing_service import (
     AptPackageSigningService,
     DebPackageSigningResult,
 )
-from pulp_deb.app.models import AptRepository, Package, PackageReleaseComponent
-
-import logging
-from gettext import gettext as _
 
 log = logging.getLogger(__name__)
 
