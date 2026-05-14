@@ -1,0 +1,2 @@
+Filter serializer validated data to only include model fields, preventing errors from extra fields
+(e.g. ``overwrite``) added to pulpcore's ``ContentSerializer``.

@@ -627,7 +627,13 @@ class BasePackageMixin(Serializer):
 
         from822_serializer = self.Meta.from822_serializer.from822(data=package_paragraph)
         from822_serializer.is_valid(raise_exception=True)
-        package_data = from822_serializer.validated_data
+        # Filter to model fields: validated_data may carry extra serializer-only fields from
+        # pulpcore's ContentSerializer (e.g. ``overwrite``) that would otherwise be forwarded
+        # to ``self.Meta.model(**package_data)`` and raise a TypeError.
+        model_fields = {f.name for f in self.Meta.model._meta.get_fields()}
+        package_data = {
+            k: v for k, v in from822_serializer.validated_data.items() if k in model_fields
+        }
         data.update(package_data)
         data["sha256"] = data["artifact"].sha256
 

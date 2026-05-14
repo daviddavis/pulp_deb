@@ -1054,10 +1054,14 @@ class DebFirstStage(Stage):
                 log.debug(_("Downloading package {}").format(package_paragraph["Package"]))
                 serializer = serializer_class.from822(data=package_paragraph)
                 serializer.is_valid(raise_exception=True)
+                model_fields = {f.name for f in package_class._meta.get_fields()}
+                content_data = {
+                    k: v for k, v in serializer.validated_data.items() if k in model_fields
+                }
                 package_content_unit = package_class(
                     relative_path=package_relpath,
                     sha256=package_sha256,
-                    **serializer.validated_data,
+                    **content_data,
                 )
                 package_path = quote(os.path.join(self.parsed_url.path, package_relpath), safe=":/")
                 package_da = DeclarativeArtifact(
@@ -1174,9 +1178,13 @@ class DebFirstStage(Stage):
                 source_relpath = os.path.join(source_dir, "blah")
                 serializer = DscFile822Serializer.from822(data=source_paragraph)
                 serializer.is_valid(raise_exception=True)
+                model_fields = {f.name for f in SourcePackage._meta.get_fields()}
+                content_data = {
+                    k: v for k, v in serializer.validated_data.items() if k in model_fields
+                }
                 source_content_unit = SourcePackage(
                     relative_path=source_relpath,
-                    **serializer.validated_data,
+                    **content_data,
                 )
                 # Handle the dsc file content
                 source_das = []
