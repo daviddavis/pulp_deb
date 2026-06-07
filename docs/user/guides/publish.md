@@ -66,7 +66,7 @@ At the time of this writing, this cannot be done via Pulp CLI.
 ## Verbatim Publications
 
 !!! attention
-    For an explanation on what a verbatim publication is, see the corresponding [feature overview](https://staging-docs.pulpproject.org/pulp_deb/docs/user/overview).
+    For an explanation on what a verbatim publication is, see the corresponding [feature overview](https://staging-docs.pulpproject.org/pulp_deb/docs/user/#verbatim-publishing).
 
 
 The following example uses a verbatim publication to host an official Debian repository, including the installer files:
