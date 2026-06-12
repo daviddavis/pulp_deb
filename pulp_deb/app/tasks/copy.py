@@ -4,6 +4,7 @@ from gettext import gettext as _
 from django.db import transaction
 from django.db.models import Q
 
+from pulpcore.plugin.exceptions import FeatureNotImplementedError
 from pulpcore.plugin.models import RepositoryVersion
 from pulpcore.plugin.util import get_domain_pk
 
@@ -105,7 +106,9 @@ def copy_content(config, structured, dependency_solving):
         )
 
     if dependency_solving:
-        raise NotImplementedError("Advanced copy with dependency solving is not yet implemented.")
+        raise FeatureNotImplementedError(
+            "Advanced copy with dependency solving is not yet implemented."
+        )
 
     for entry in config:
         (
