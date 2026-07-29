@@ -10,6 +10,7 @@ from pulpcore.plugin.models import SigningService
 from pulpcore.plugin.serializers import (
     PgpKeyFingerprintField,
     RelatedField,
+    RepositoryAddRemoveContentSerializer,
     RepositorySerializer,
     RepositorySyncURLSerializer,
     ValidateFieldsMixin,
@@ -24,6 +25,28 @@ from pulp_deb.app.models import (
     AptRepositoryReleaseServiceOverride,
 )
 from pulp_deb.app.schema import COPY_CONFIG_SCHEMA
+
+
+class AptRepositoryAddRemoveContentSerializer(RepositoryAddRemoveContentSerializer):
+    distribution = serializers.CharField(
+        help_text=_(
+            "Name of the distribution any packages from add_content_units or remove_content_units "
+            "should be added to or removed from. Defaults to DEFAULT_DISTRIBUTION if only a "
+            "component is provided."
+        ),
+        required=False,
+    )
+    component = serializers.CharField(
+        help_text=_(
+            "Name of the component any packages from add_content_units or remove_content_units "
+            "should be added to or removed from. Defaults to DEFAULT_COMPONENT if only a "
+            "distribution is provided.."
+        ),
+        required=False,
+    )
+
+    class Meta(RepositoryAddRemoveContentSerializer.Meta):
+        fields = RepositoryAddRemoveContentSerializer.Meta.fields + ["distribution", "component"]
 
 
 class ServiceOverrideField(serializers.DictField):
