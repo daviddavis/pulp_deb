@@ -4,6 +4,9 @@ from uuid import uuid4
 
 import pytest
 
+from pulpcore.client.pulp_deb import SetLabel, UnsetLabel
+from pulpcore.client.pulp_deb.exceptions import ForbiddenException
+
 from pulp_deb.tests.functional.constants import DEB_PACKAGE_RELPATH
 from pulp_deb.tests.functional.utils import get_local_package_absolute_path
 
@@ -41,6 +44,44 @@ def test_create_package(apt_package_api, deb_package_factory):
     with pytest.raises(AttributeError) as exc:
         apt_package_api.delete(package.pulp_href)
     assert "object has no attribute 'delete'" in exc.value.args[0]
+
+
+@pytest.mark.parallel
+def test_set_unset_package_labels(
+    apt_package_api, deb_package_factory, deb_repository_factory, gen_user
+):
+    """Verify package labels require the content label management permission."""
+    repository = deb_repository_factory()
+    deb_package_factory(
+        relative_path=DEB_PACKAGE_RELPATH,
+        file=str(get_local_package_absolute_path(DEB_PACKAGE_RELPATH)),
+        repository=repository.pulp_href,
+    )
+    package = apt_package_api.list(relative_path=DEB_PACKAGE_RELPATH).results[0]
+    content_labeler = gen_user(model_roles=["deb.admin", "core.content_labeler"])
+    user_denied = gen_user(model_roles=["deb.admin"])
+
+    with content_labeler:
+        apt_package_api.set_label(
+            package.pulp_href,
+            SetLabel(key="test-label", value="test-value"),
+        )
+        package = apt_package_api.read(package.pulp_href)
+        assert package.pulp_labels["test-label"] == "test-value"
+
+        apt_package_api.unset_label(package.pulp_href, UnsetLabel(key="test-label"))
+        package = apt_package_api.read(package.pulp_href)
+        assert "test-label" not in package.pulp_labels
+
+    with user_denied:
+        with pytest.raises(ForbiddenException):
+            apt_package_api.set_label(
+                package.pulp_href,
+                SetLabel(key="test-label", value="test-value"),
+            )
+
+        with pytest.raises(ForbiddenException):
+            apt_package_api.unset_label(package.pulp_href, UnsetLabel(key="test-label"))
 
 
 def test_same_sha256_same_relative_path_no_repo(

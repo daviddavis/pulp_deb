@@ -262,6 +262,12 @@ class PackageViewSet(SingleArtifactContentUploadViewSet):
                     "has_required_repo_perms_on_upload:deb.view_aptrepository",
                 ],
             },
+            {
+                "action": ["set_label", "unset_label"],
+                "principal": "authenticated",
+                "effect": "allow",
+                "condition": ["has_model_or_domain_perms:core.manage_content_labels"],
+            },
         ],
         "queryset_scoping": {"function": "scope_queryset"},
     }
